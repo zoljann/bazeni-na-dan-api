@@ -11,7 +11,7 @@ const router = Router();
  *         description: OK
  */
 router.get('/pools', (_req, res) => {
-  res.json({ state: 'success', pools: [] });
+  res.json({ pools: [] });
 });
 
 export default router;

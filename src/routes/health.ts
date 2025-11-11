@@ -11,7 +11,7 @@ const router = Router();
  *         description: OK
  */
 router.get('/health', (_req, res) => {
-  res.json({ state: 'success', uptime: process.uptime() });
+  res.json({ uptime: process.uptime() });
 });
 
 export default router;
