@@ -15,8 +15,8 @@ import http from 'http';
     server.requestTimeout = 60_000;
 
     server.listen(ENV.PORT, () => {
-      console.log(`API:  http://localhost:${ENV.PORT}${ENV.API_PREFIX}/health`);
-      console.log(`DB:   http://localhost:${ENV.PORT}${ENV.API_PREFIX}/health/db`);
+      console.log(`API:  http://localhost:${ENV.PORT}/health`);
+      console.log(`DB:   http://localhost:${ENV.PORT}/health/db`);
       console.log(`Docs: http://localhost:${ENV.PORT}/docs`);
     });
 

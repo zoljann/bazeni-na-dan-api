@@ -1,14 +1,15 @@
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { ENV } from './env';
 
-const SECRET = process.env.JWT_SECRET!;
-const TTL = process.env.JWT_TTL || '7d';
+if (!ENV.JWT_SECRET) throw new Error('Missing JWT_SECRET');
+
+const EXPIRES_IN = /^\d+$/.test(ENV.JWT_TTL)
+  ? Number(ENV.JWT_TTL)
+  : (ENV.JWT_TTL as SignOptions['expiresIn']);
 
 export function signAccess(userId: string) {
-  return jwt.sign({ sub: userId }, SECRET, { expiresIn: TTL });
-}
-export function verifyAccess(token: string) {
-  return jwt.verify(token, SECRET) as { sub: string; iat: number; exp: number };
+  return jwt.sign({ sub: userId }, ENV.JWT_SECRET, { expiresIn: EXPIRES_IN });
 }
 export async function hashPassword(pw: string) {
   return bcrypt.hash(pw, 10);

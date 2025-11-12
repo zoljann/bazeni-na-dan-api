@@ -7,15 +7,107 @@ const router = Router();
 
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 25;
-const isEmail = (value: string): boolean =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-const isDigits = (value: string): boolean =>
-  /^\d{9,15}$/.test(value);
+const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const isDigits = (value: string): boolean => /^\d{9,15}$/.test(value);
 
 /**
- * POST /auth/register
- * Body: { firstName, lastName, email, mobileNumber, password }
- * Returns: { user }
+ * @openapi
+ * components:
+ *   securitySchemes:
+ *     BearerAuth:
+ *       type: http
+ *       scheme: bearer
+ *       bearerFormat: JWT
+ *   schemas:
+ *     User:
+ *       type: object
+ *       required: [id, firstName, lastName, email, mobileNumber]
+ *       properties:
+ *         id: { type: string, example: "665c1a2f7a2f0a3f9b6d1a10" }
+ *         firstName: { type: string, example: "Nedim" }
+ *         lastName: { type: string, example: "Zolj" }
+ *         email: { type: string, format: email, example: "nedim@example.com" }
+ *         mobileNumber: { type: string, example: "061234567" }
+ *         avatarUrl: { type: string, nullable: true, example: "https://example.com/a.jpg" }
+ *         createdAt: { type: string, format: date-time }
+ *         updatedAt: { type: string, format: date-time }
+ *     RegisterRequest:
+ *       type: object
+ *       required: [firstName, lastName, email, mobileNumber, password]
+ *       properties:
+ *         firstName: { type: string }
+ *         lastName: { type: string }
+ *         email: { type: string, format: email }
+ *         mobileNumber: { type: string, description: "digits only, 9..15" }
+ *         password: { type: string, minLength: 6, maxLength: 25 }
+ *     LoginRequest:
+ *       type: object
+ *       required: [email, password]
+ *       properties:
+ *         email: { type: string, format: email }
+ *         password: { type: string, minLength: 6, maxLength: 25 }
+ *     PasswordChange:
+ *       type: object
+ *       required: [currentPassword, newPassword]
+ *       properties:
+ *         currentPassword: { type: string }
+ *         newPassword: { type: string, minLength: 6, maxLength: 25 }
+ *     UpdateUserRequest:
+ *       type: object
+ *       required: [firstName, lastName, email, mobileNumber]
+ *       properties:
+ *         firstName: { type: string }
+ *         lastName: { type: string }
+ *         email: { type: string, format: email }
+ *         mobileNumber: { type: string }
+ *         avatarUrl: { type: string, nullable: true }
+ *         passwordChange:
+ *           $ref: '#/components/schemas/PasswordChange'
+ *     AuthSuccess:
+ *       type: object
+ *       properties:
+ *         user:
+ *           $ref: '#/components/schemas/User'
+ *         accessToken:
+ *           type: string
+ *           description: "JWT access token"
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         message: { type: string }
+ */
+
+/**
+ * @openapi
+ * /auth/register:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Register a new user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/RegisterRequest' }
+ *     responses:
+ *       201:
+ *         description: Created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid data
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       409:
+ *         description: Email already used
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.post('/auth/register', async (req, res) => {
   const firstName = (req.body?.firstName ?? '').trim();
@@ -44,7 +136,6 @@ router.post('/auth/register', async (req, res) => {
       mobileNumber,
       passwordHash
     });
-    // schema transform maps to { id, ... } and strips passwordHash
     return res.status(201).json({ user: createdUser.toObject() });
   } catch (error: any) {
     if (error?.code === 11000) return res.status(409).json({ message: 'Email already used' });
@@ -53,9 +144,28 @@ router.post('/auth/register', async (req, res) => {
 });
 
 /**
- * POST /auth/login
- * Body: { email, password }
- * Returns: { user, accessToken }
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Log in with email and password
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/LoginRequest' }
+ *     responses:
+ *       200:
+ *         description: OK
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthSuccess'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.post('/auth/login', async (req, res) => {
   const email = (req.body?.email ?? '').trim().toLowerCase();
@@ -77,10 +187,47 @@ router.post('/auth/login', async (req, res) => {
 });
 
 /**
- * PUT /user (self-update)
- * Auth: Bearer <accessToken>
- * Body: { firstName, lastName, email, mobileNumber, avatarUrl?, passwordChange? }
- * Returns: { user }
+ * @openapi
+ * /user:
+ *   put:
+ *     tags: [Auth]
+ *     summary: Update current user (self)
+ *     security: [{ BearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+ *     responses:
+ *       200:
+ *         description: Updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid data / Invalid password change
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       401:
+ *         description: Unauthorized / Current password incorrect
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       409:
+ *         description: Email already used
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.put('/user', authRequired, async (req, res) => {
   const userId = (req as any).userId as string;
