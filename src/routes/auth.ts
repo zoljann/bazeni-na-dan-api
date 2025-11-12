@@ -11,11 +11,6 @@ const isEmail = (value: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const isDigits = (value: string): boolean =>
   /^\d{9,15}$/.test(value);
-const toClientUser = (userDoc: any) => {
-  const src = userDoc?.toObject ? userDoc.toObject() : userDoc;
-  const { _id, passwordHash, __v, ...rest } = src || {};
-  return { id: String(_id ?? rest?.id), ...rest };
-};
 
 /**
  * POST /auth/register
@@ -23,44 +18,36 @@ const toClientUser = (userDoc: any) => {
  * Returns: { user }
  */
 router.post('/auth/register', async (req, res) => {
-  const rawFirstName = (req.body?.firstName ?? '').trim();
-  const rawLastName = (req.body?.lastName ?? '').trim();
-  const rawEmail = (req.body?.email ?? '').trim().toLowerCase();
-  const rawMobileNumber = (req.body?.mobileNumber ?? '').trim();
-  const rawPassword = req.body?.password ?? '';
+  const firstName = (req.body?.firstName ?? '').trim();
+  const lastName = (req.body?.lastName ?? '').trim();
+  const email = (req.body?.email ?? '').trim().toLowerCase();
+  const mobileNumber = (req.body?.mobileNumber ?? '').trim();
+  const password = req.body?.password ?? '';
 
-  const passwordLengthOk =
-    rawPassword.length >= PASSWORD_MIN && rawPassword.length <= PASSWORD_MAX;
+  const passLenOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
 
-  if (
-    !rawFirstName ||
-    !rawLastName ||
-    !isEmail(rawEmail) ||
-    !isDigits(rawMobileNumber) ||
-    !passwordLengthOk
-  ) {
+  if (!firstName || !lastName || !isEmail(email) || !isDigits(mobileNumber) || !passLenOk) {
     return res.status(400).json({ message: 'Invalid data' });
   }
 
-  if (await User.findOne({ email: rawEmail })) {
+  if (await User.findOne({ email })) {
     return res.status(409).json({ message: 'Email already used' });
   }
 
-  const passwordHash = await hashPassword(rawPassword);
+  const passwordHash = await hashPassword(password);
 
   try {
     const createdUser = await User.create({
-      firstName: rawFirstName,
-      lastName: rawLastName,
-      email: rawEmail,
-      mobileNumber: rawMobileNumber,
+      firstName,
+      lastName,
+      email,
+      mobileNumber,
       passwordHash
     });
-    return res.status(201).json({ user: toClientUser(createdUser) });
+    // schema transform maps to { id, ... } and strips passwordHash
+    return res.status(201).json({ user: createdUser.toObject() });
   } catch (error: any) {
-    if (error?.code === 11000) {
-      return res.status(409).json({ message: 'Email already used' });
-    }
+    if (error?.code === 11000) return res.status(409).json({ message: 'Email already used' });
     throw error;
   }
 });
@@ -71,33 +58,28 @@ router.post('/auth/register', async (req, res) => {
  * Returns: { user, accessToken }
  */
 router.post('/auth/login', async (req, res) => {
-  const rawEmail = (req.body?.email ?? '').trim().toLowerCase();
-  const rawPassword = req.body?.password ?? '';
+  const email = (req.body?.email ?? '').trim().toLowerCase();
+  const password = req.body?.password ?? '';
 
-  const passwordLengthOk =
-    rawPassword.length >= PASSWORD_MIN && rawPassword.length <= PASSWORD_MAX;
-
-  if (!isEmail(rawEmail) || !passwordLengthOk) {
+  const passLenOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
+  if (!isEmail(email) || !passLenOk) {
     return res.status(401).json({ message: 'Invalid credentials' });
   }
 
-  const user = await User.findOne({ email: rawEmail });
+  const user = await User.findOne({ email });
   if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-  const passwordOk = await verifyPassword(rawPassword, user.passwordHash);
-  if (!passwordOk) return res.status(401).json({ message: 'Invalid credentials' });
+  const ok = await verifyPassword(password, user.passwordHash);
+  if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
   const accessToken = signAccess(user.id);
-  return res.json({ user: toClientUser(user), accessToken });
+  return res.json({ user: user.toObject(), accessToken });
 });
 
 /**
- * PUT /user  (self-update)
+ * PUT /user (self-update)
  * Auth: Bearer <accessToken>
- * Body: {
- *  firstName, lastName, email, mobileNumber, avatarUrl?,
- *  passwordChange?: { currentPassword, newPassword }
- * }
+ * Body: { firstName, lastName, email, mobileNumber, avatarUrl?, passwordChange? }
  * Returns: { user }
  */
 router.put('/user', authRequired, async (req, res) => {
@@ -107,8 +89,7 @@ router.put('/user', authRequired, async (req, res) => {
   const lastName = (req.body?.lastName ?? '').trim();
   const email = (req.body?.email ?? '').trim().toLowerCase();
   const mobileNumber = (req.body?.mobileNumber ?? '').trim();
-  const avatarUrl =
-    typeof req.body?.avatarUrl === 'string' ? req.body.avatarUrl.trim() : undefined;
+  const avatarUrl = typeof req.body?.avatarUrl === 'string' ? req.body.avatarUrl.trim() : undefined;
   const passwordChange = req.body?.passwordChange as
     | { currentPassword?: string; newPassword?: string }
     | undefined;
@@ -120,20 +101,17 @@ router.put('/user', authRequired, async (req, res) => {
   const user = await User.findById(userId);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  // If email changed, ensure uniqueness
   if (email !== user.email) {
     const exists = await User.findOne({ email });
     if (exists) return res.status(409).json({ message: 'Email already used' });
   }
 
-  // Optional password change
   if (passwordChange) {
     const currentPassword = passwordChange.currentPassword ?? '';
     const newPassword = passwordChange.newPassword ?? '';
-    const newPassLenOk =
-      newPassword.length >= PASSWORD_MIN && newPassword.length <= PASSWORD_MAX;
+    const newLenOk = newPassword.length >= PASSWORD_MIN && newPassword.length <= PASSWORD_MAX;
 
-    if (!currentPassword || !newPassword || !newPassLenOk) {
+    if (!currentPassword || !newPassword || !newLenOk) {
       return res.status(400).json({ message: 'Invalid password change' });
     }
 
@@ -151,11 +129,9 @@ router.put('/user', authRequired, async (req, res) => {
 
   try {
     await user.save();
-    return res.json({ user: toClientUser(user) });
+    return res.json({ user: user.toObject() });
   } catch (error: any) {
-    if (error?.code === 11000) {
-      return res.status(409).json({ message: 'Email already used' });
-    }
+    if (error?.code === 11000) return res.status(409).json({ message: 'Email already used' });
     throw error;
   }
 });
