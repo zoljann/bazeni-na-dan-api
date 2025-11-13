@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Types } from 'mongoose';
 import { Pool } from '../models/pool';
 import { adminSecretRequired, authRequired } from '../helpers/authRequired';
+import { verifyAccess } from '../config/auth';
 
 const router = Router();
 const isObjectId = (v: unknown): v is string => typeof v === 'string' && Types.ObjectId.isValid(v);
@@ -135,8 +136,13 @@ router.get('/pools', async (req, res) => {
  * /pool:
  *   get:
  *     tags: [Pools]
- *     summary: Get a single pool (public)
- *     description: Returns pool only if it is visible and not expired.
+ *     summary: Get a single pool (public or owner)
+ *     description: |
+ *       Returns the pool if:
+ *       - it is public (isVisible = true and not expired), **or**
+ *       - the authenticated user (Bearer token) is the owner.
+ *     security:
+ *       - BearerAuth: []
  *     parameters:
  *       - in: query
  *         name: id
@@ -154,14 +160,8 @@ router.get('/pools', async (req, res) => {
  *                   $ref: '#/components/schemas/Pool'
  *       400:
  *         description: Invalid id
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  *       404:
- *         description: Pool not found (or not public)
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *         description: Pool not found (not public and not owner)
  */
 router.get('/pool', async (req, res) => {
   const id = typeof req.query.id === 'string' ? req.query.id.trim() : '';
@@ -170,9 +170,21 @@ router.get('/pool', async (req, res) => {
   const pool = await Pool.findById(id);
   if (!pool) return res.status(404).json({ message: 'Pool not found' });
 
-  const now = new Date();
-  const isPublic = pool.isVisible === true && (!pool.visibleUntil || pool.visibleUntil >= now);
-  if (!isPublic) return res.status(404).json({ message: 'Pool not found' });
+  let isOwner = false;
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+  if (token) {
+    try {
+      const { sub } = verifyAccess(token);
+      isOwner = String(pool.userId) === String(sub);
+    } catch {}
+  }
+
+  if (!isOwner) {
+    const now = new Date();
+    const isPublic = pool.isVisible === true && (!pool.visibleUntil || pool.visibleUntil >= now);
+    if (!isPublic) return res.status(404).json({ message: 'Pool not found' });
+  }
 
   return res.json({ pool: pool.toObject() });
 });
@@ -351,6 +363,90 @@ router.delete('/pools/:id', authRequired, async (req, res) => {
 
   if (!deleted) return res.status(404).json({ message: 'Pool not found' });
   return res.status(204).send();
+});
+
+/**
+ * @openapi
+ * /pools/{id}:
+ *   put:
+ *     tags: [Pools]
+ *     summary: Update a pool (owner only)
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/CreatePoolRequest' }
+ *     responses:
+ *       200:
+ *         description: Updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 pool: { $ref: '#/components/schemas/Pool' }
+ *       400: { description: Invalid payload }
+ *       401: { description: Unauthorized }
+ *       404: { description: Pool not found or not owned by user }
+ */
+router.put('/pools/:id', authRequired, async (req, res) => {
+  const id = req.params.id;
+  if (!isObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
+
+  const authUserId = (req as any).userId as string;
+  const bodyPool = req.body?.pool || {};
+
+  const title = (bodyPool.title ?? '').trim();
+  const city = (bodyPool.city ?? '').trim();
+  const capacity = Number(bodyPool.capacity);
+  const images: string[] = Array.isArray(bodyPool.images) ? bodyPool.images : [];
+  const pricePerDay = bodyPool.pricePerDay === undefined ? undefined : Number(bodyPool.pricePerDay);
+  const description =
+    typeof bodyPool.description === 'string' ? bodyPool.description.trim() : undefined;
+  const filters =
+    bodyPool.filters && typeof bodyPool.filters === 'object'
+      ? { heated: !!bodyPool.filters.heated, petsAllowed: !!bodyPool.filters.petsAllowed }
+      : undefined;
+  const busyDays: string[] | undefined = Array.isArray(bodyPool.busyDays)
+    ? bodyPool.busyDays
+    : undefined;
+
+  const titleOk = title.length >= 3 && title.length <= 40;
+  const cityOk = !!city;
+  const capOk = inRange(capacity, 1, 100);
+  const imagesOk = inRange(images.length, 1, 7);
+  const priceOk = pricePerDay === undefined || inRange(pricePerDay, 1, 10000);
+  const descOk = description === undefined || inRange(description.length, 1, 300);
+
+  if (!titleOk || !cityOk || !capOk || !imagesOk || !priceOk || !descOk) {
+    return res.status(400).json({ message: 'Invalid pool data' });
+  }
+
+  const updated = await Pool.findOneAndUpdate(
+    { _id: new Types.ObjectId(id), userId: new Types.ObjectId(authUserId) },
+    {
+      $set: {
+        title,
+        city,
+        capacity,
+        images,
+        pricePerDay,
+        description,
+        filters,
+        busyDays
+      }
+    },
+    { new: true }
+  );
+
+  if (!updated) return res.status(404).json({ message: 'Pool not found' });
+  return res.json({ pool: updated.toObject() });
 });
 
 export default router;
