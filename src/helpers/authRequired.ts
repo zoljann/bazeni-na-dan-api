@@ -28,7 +28,6 @@ export const adminSecretRequired = (req: Request, res: Response, next: NextFunct
   const expected = ENV.ADMIN_SECRET || '';
   if (!expected) return res.status(500).json({ message: 'Server misconfigured' });
 
-  // constant-time compare
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
