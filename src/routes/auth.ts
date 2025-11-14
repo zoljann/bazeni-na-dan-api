@@ -93,6 +93,7 @@ const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
  *         content:
  *           application/json:
  *             schema:
+ *               $ref: '#/components/schemas/AuthSuccess'
  *               type: object
  *               properties:
  *                 user:
@@ -130,7 +131,11 @@ router.post('/auth/register', async (req, res) => {
 
   try {
     const created = await User.create({ firstName, lastName, email, mobileNumber, passwordHash });
-    return res.status(201).json({ user: created.toObject() });
+    const accessToken = signAccess(created.id); 
+    return res.status(201).json({
+      user: created.toObject(),
+      accessToken
+    });
   } catch (e: any) {
     if (e?.code === 11000) return res.status(409).json({ message: 'Email already used' });
     throw e;
