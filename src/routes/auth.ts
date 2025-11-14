@@ -7,8 +7,8 @@ const router = Router();
 
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 25;
-const isEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-const isDigits = (value: string): boolean => /^\d{9,15}$/.test(value);
+const isEmail = (v: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
 
 /**
  * @openapi
@@ -70,7 +70,6 @@ const isDigits = (value: string): boolean => /^\d{9,15}$/.test(value);
  *           $ref: '#/components/schemas/User'
  *         accessToken:
  *           type: string
- *           description: "JWT access token"
  *     ErrorResponse:
  *       type: object
  *       properties:
@@ -110,15 +109,16 @@ const isDigits = (value: string): boolean => /^\d{9,15}$/.test(value);
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.post('/auth/register', async (req, res) => {
-  const firstName = (req.body?.firstName ?? '').trim();
-  const lastName = (req.body?.lastName ?? '').trim();
-  const email = (req.body?.email ?? '').trim().toLowerCase();
-  const mobileNumber = (req.body?.mobileNumber ?? '').trim();
-  const password = req.body?.password ?? '';
+  const firstName = String(req.body?.firstName ?? '').trim();
+  const lastName = String(req.body?.lastName ?? '').trim();
+  const email = String(req.body?.email ?? '')
+    .trim()
+    .toLowerCase();
+  const mobileNumber = String(req.body?.mobileNumber ?? '').trim();
+  const password = String(req.body?.password ?? '');
 
-  const passLenOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
-
-  if (!firstName || !lastName || !isEmail(email) || !isDigits(mobileNumber) || !passLenOk) {
+  const passOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
+  if (!firstName || !lastName || !isEmail(email) || !isDigits(mobileNumber) || !passOk) {
     return res.status(400).json({ message: 'Invalid data' });
   }
 
@@ -129,17 +129,11 @@ router.post('/auth/register', async (req, res) => {
   const passwordHash = await hashPassword(password);
 
   try {
-    const createdUser = await User.create({
-      firstName,
-      lastName,
-      email,
-      mobileNumber,
-      passwordHash
-    });
-    return res.status(201).json({ user: createdUser.toObject() });
-  } catch (error: any) {
-    if (error?.code === 11000) return res.status(409).json({ message: 'Email already used' });
-    throw error;
+    const created = await User.create({ firstName, lastName, email, mobileNumber, passwordHash });
+    return res.status(201).json({ user: created.toObject() });
+  } catch (e: any) {
+    if (e?.code === 11000) return res.status(409).json({ message: 'Email already used' });
+    throw e;
   }
 });
 
@@ -168,11 +162,13 @@ router.post('/auth/register', async (req, res) => {
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.post('/auth/login', async (req, res) => {
-  const email = (req.body?.email ?? '').trim().toLowerCase();
-  const password = req.body?.password ?? '';
+  const email = String(req.body?.email ?? '')
+    .trim()
+    .toLowerCase();
+  const password = String(req.body?.password ?? '');
+  const passOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
 
-  const passLenOk = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
-  if (!isEmail(email) || !passLenOk) {
+  if (!isEmail(email) || !passOk) {
     return res.status(401).json({ message: 'Invalid credentials' });
   }
 
@@ -232,10 +228,12 @@ router.post('/auth/login', async (req, res) => {
 router.put('/user', authRequired, async (req, res) => {
   const userId = (req as any).userId as string;
 
-  const firstName = (req.body?.firstName ?? '').trim();
-  const lastName = (req.body?.lastName ?? '').trim();
-  const email = (req.body?.email ?? '').trim().toLowerCase();
-  const mobileNumber = (req.body?.mobileNumber ?? '').trim();
+  const firstName = String(req.body?.firstName ?? '').trim();
+  const lastName = String(req.body?.lastName ?? '').trim();
+  const email = String(req.body?.email ?? '')
+    .trim()
+    .toLowerCase();
+  const mobileNumber = String(req.body?.mobileNumber ?? '').trim();
   const avatarUrl = typeof req.body?.avatarUrl === 'string' ? req.body.avatarUrl.trim() : undefined;
   const passwordChange = req.body?.passwordChange as
     | { currentPassword?: string; newPassword?: string }
@@ -254,8 +252,8 @@ router.put('/user', authRequired, async (req, res) => {
   }
 
   if (passwordChange) {
-    const currentPassword = passwordChange.currentPassword ?? '';
-    const newPassword = passwordChange.newPassword ?? '';
+    const currentPassword = String(passwordChange.currentPassword ?? '');
+    const newPassword = String(passwordChange.newPassword ?? '');
     const newLenOk = newPassword.length >= PASSWORD_MIN && newPassword.length <= PASSWORD_MAX;
 
     if (!currentPassword || !newPassword || !newLenOk) {
@@ -277,9 +275,9 @@ router.put('/user', authRequired, async (req, res) => {
   try {
     await user.save();
     return res.json({ user: user.toObject() });
-  } catch (error: any) {
-    if (error?.code === 11000) return res.status(409).json({ message: 'Email already used' });
-    throw error;
+  } catch (e: any) {
+    if (e?.code === 11000) return res.status(409).json({ message: 'Email already used' });
+    throw e;
   }
 });
 

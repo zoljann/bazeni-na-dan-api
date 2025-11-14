@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Types } from 'mongoose';
 import { Pool } from '../models/pool';
+import { User } from '../models/user';
 import { adminSecretRequired, authRequired } from '../helpers/authRequired';
 import { verifyAccess } from '../config/auth';
 
@@ -26,6 +27,13 @@ const inRange = (n: number, min: number, max: number) => Number.isFinite(n) && n
  *         petsAllowed:
  *           type: boolean
  *           example: false
+ *     OwnerSummary:
+ *       type: object
+ *       properties:
+ *         name:         { type: string, example: "Nedim Zolj" }
+ *         avatarUrl:    { type: string, nullable: true, example: "https://cdn.example.com/u/123.jpg" }
+ *         mobileNumber: { type: string, nullable: true, example: "062/614-300" }
+ *
  *     Pool:
  *       type: object
  *       required: [id, userId, title, city, capacity, images]
@@ -52,6 +60,8 @@ const inRange = (n: number, min: number, max: number) => Number.isFinite(n) && n
  *           nullable: true
  *           format: date-time
  *           example: "2026-01-01T00:00:00.000Z"
+ *         owner:
+ *           $ref: '#/components/schemas/OwnerSummary'
  *     NewPool:
  *       type: object
  *       required: [title, city, capacity, images]
@@ -120,15 +130,32 @@ const inRange = (n: number, min: number, max: number) => Number.isFinite(n) && n
  *                     $ref: '#/components/schemas/Pool'
  */
 router.get('/pools', async (req, res) => {
-  const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
-  const now = new Date();
+  const ownerIdQuery = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
 
-  const filter = isObjectId(userId)
-    ? { userId: new Types.ObjectId(userId) }
-    : { isVisible: true, $or: [{ visibleUntil: null }, { visibleUntil: { $gte: now } }] };
+  const filter = isObjectId(ownerIdQuery)
+    ? { userId: new Types.ObjectId(ownerIdQuery) }
+    : { isVisible: true, $or: [{ visibleUntil: null }, { visibleUntil: { $gte: new Date() } }] };
 
   const pools = await Pool.find(filter).sort({ createdAt: -1 });
-  return res.json({ pools: pools.map((p) => p.toObject()) });
+  const ownerIds = [...new Set(pools.map((p) => String(p.userId)))];
+  const ownerDocs = await User.find({ _id: { $in: ownerIds } })
+    .select('firstName lastName avatarUrl mobileNumber')
+    .lean();
+
+  const ownersById = new Map(ownerDocs.map((o) => [String(o._id), o]));
+
+  return res.json({
+    pools: pools.map((p) => {
+      const owner = ownersById.get(String(p.userId));
+      const name =
+        [owner?.firstName?.trim(), owner?.lastName?.trim()].filter(Boolean).join(' ') || 'Domaćin';
+      const avatarUrl = owner?.avatarUrl || undefined;
+      const mobileNumber = owner?.mobileNumber || undefined;
+
+      const po = p.toObject();
+      return { ...po, owner: { name, avatarUrl, mobileNumber } };
+    })
+  });
 });
 
 /**
@@ -142,6 +169,7 @@ router.get('/pools', async (req, res) => {
  *       - it is public (isVisible = true and not expired), **or**
  *       - the authenticated user (Bearer token) is the owner.
  *     security:
+ *       - {}
  *       - BearerAuth: []
  *     parameters:
  *       - in: query
@@ -171,22 +199,35 @@ router.get('/pool', async (req, res) => {
   if (!pool) return res.status(404).json({ message: 'Pool not found' });
 
   let isOwner = false;
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+  const token = req.headers.authorization?.replace(/^Bearer\s+/, '');
   if (token) {
     try {
-      const { sub } = verifyAccess(token);
-      isOwner = String(pool.userId) === String(sub);
+      isOwner = String(verifyAccess(token).sub) === String(pool.userId);
     } catch {}
   }
 
   if (!isOwner) {
-    const now = new Date();
-    const isPublic = pool.isVisible === true && (!pool.visibleUntil || pool.visibleUntil >= now);
+    const isPublic =
+      pool.isVisible === true && (!pool.visibleUntil || pool.visibleUntil >= new Date());
     if (!isPublic) return res.status(404).json({ message: 'Pool not found' });
   }
 
-  return res.json({ pool: pool.toObject() });
+  const u = await User.findById(pool.userId)
+    .select('firstName lastName avatarUrl mobileNumber')
+    .lean();
+
+  const name = [u?.firstName?.trim(), u?.lastName?.trim()].filter(Boolean).join(' ') || 'Domaćin';
+
+  return res.json({
+    pool: {
+      ...pool.toObject(),
+      owner: {
+        name,
+        avatarUrl: u?.avatarUrl || undefined,
+        mobileNumber: u?.mobileNumber || undefined
+      }
+    }
+  });
 });
 
 /**
@@ -220,37 +261,37 @@ router.get('/pool', async (req, res) => {
  *         description: Unauthorized
  */
 router.post('/pools', authRequired, async (req, res) => {
-  const authUserId = (req as any).userId as string;
-  const bodyPool = req.body?.pool || {};
+  const authenticatedUserId = (req as any).userId as string;
+  const input = req.body?.pool ?? {};
 
-  const title = (bodyPool.title ?? '').trim();
-  const city = (bodyPool.city ?? '').trim();
-  const capacity = Number(bodyPool.capacity);
-  const images: string[] = Array.isArray(bodyPool.images) ? bodyPool.images : [];
-  const pricePerDay = bodyPool.pricePerDay === undefined ? undefined : Number(bodyPool.pricePerDay);
-  const description =
-    typeof bodyPool.description === 'string' ? bodyPool.description.trim() : undefined;
-  const filters =
-    bodyPool.filters && typeof bodyPool.filters === 'object'
-      ? { heated: !!bodyPool.filters.heated, petsAllowed: !!bodyPool.filters.petsAllowed }
-      : undefined;
-  const busyDays: string[] | undefined = Array.isArray(bodyPool.busyDays)
-    ? bodyPool.busyDays
+  const title = String(input.title ?? '').trim();
+  const city = String(input.city ?? '').trim();
+  const capacity = Number(input.capacity);
+  const images: string[] = Array.isArray(input.images)
+    ? input.images.filter((u: unknown): u is string => typeof u === 'string' && u.trim() !== '')
+    : [];
+
+  const pricePerDay = input.pricePerDay === undefined ? undefined : Number(input.pricePerDay);
+  const description = typeof input.description === 'string' ? input.description.trim() : undefined;
+  const filters = input?.filters
+    ? { heated: !!input.filters.heated, petsAllowed: !!input.filters.petsAllowed }
     : undefined;
+  const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
 
-  const titleOk = title.length >= 3 && title.length <= 40;
-  const cityOk = !!city;
-  const capOk = inRange(capacity, 1, 100);
-  const imagesOk = inRange(images.length, 1, 7);
-  const priceOk = pricePerDay === undefined || inRange(pricePerDay, 1, 10000);
-  const descOk = description === undefined || inRange(description.length, 1, 300);
+  const isValid =
+    title.length >= 3 &&
+    title.length <= 40 &&
+    city.length > 0 &&
+    Number.isInteger(capacity) &&
+    capacity >= 1 &&
+    capacity <= 100 &&
+    images.length >= 1 &&
+    images.length <= 7;
 
-  if (!titleOk || !cityOk || !capOk || !imagesOk || !priceOk || !descOk) {
-    return res.status(400).json({ message: 'Invalid pool data' });
-  }
+  if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
   const created = await Pool.create({
-    userId: new Types.ObjectId(authUserId),
+    userId: new Types.ObjectId(authenticatedUserId),
     title,
     city,
     capacity,
@@ -300,27 +341,24 @@ router.post('/pools', authRequired, async (req, res) => {
  *         description: Pool not found
  */
 router.put('/pools/:id/visibility', adminSecretRequired, async (req, res) => {
-  const id = req.params.id;
+  const { id } = req.params;
   if (!isObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
 
   const isVisible = !!req.body?.isVisible;
-  const visibleUntilISO = req.body?.visibleUntil as string | undefined;
-
-  let visibleUntil: Date | null = null;
-  if (visibleUntilISO) {
-    const dt = new Date(visibleUntilISO);
-    if (isNaN(dt.getTime())) return res.status(400).json({ message: 'Invalid visibleUntil' });
-    visibleUntil = dt;
+  const rawUntil = req.body?.visibleUntil as string | undefined;
+  const visibleUntil = rawUntil ? new Date(rawUntil) : null;
+  if (rawUntil && Number.isNaN(visibleUntil?.getTime())) {
+    return res.status(400).json({ message: 'Invalid visibleUntil' });
   }
 
-  const updated = await Pool.findByIdAndUpdate(
+  const pool = await Pool.findByIdAndUpdate(
     id,
     { $set: { isVisible, visibleUntil: isVisible ? visibleUntil : null } },
     { new: true }
   );
-  if (!updated) return res.status(404).json({ message: 'Pool not found' });
+  if (!pool) return res.status(404).json({ message: 'Pool not found' });
 
-  return res.json({ pool: updated.toObject() });
+  return res.json({ pool: pool.toObject() });
 });
 
 /**
@@ -352,17 +390,18 @@ router.put('/pools/:id/visibility', adminSecretRequired, async (req, res) => {
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 router.delete('/pools/:id', authRequired, async (req, res) => {
-  const poolId = req.params.id;
-  const authUserId = (req as any).userId as string;
-  if (!isObjectId(poolId)) return res.status(400).json({ message: 'Invalid id' });
+  const { id } = req.params;
+  const userId = (req as any).userId as string;
+
+  if (!isObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
 
   const deleted = await Pool.findOneAndDelete({
-    _id: new Types.ObjectId(poolId),
-    userId: new Types.ObjectId(authUserId)
+    _id: new Types.ObjectId(id),
+    userId: new Types.ObjectId(userId)
   });
 
   if (!deleted) return res.status(404).json({ message: 'Pool not found' });
-  return res.status(204).send();
+  return res.sendStatus(204);
 });
 
 /**
@@ -396,52 +435,38 @@ router.delete('/pools/:id', authRequired, async (req, res) => {
  *       404: { description: Pool not found or not owned by user }
  */
 router.put('/pools/:id', authRequired, async (req, res) => {
-  const id = req.params.id;
+  const { id } = req.params;
   if (!isObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
 
-  const authUserId = (req as any).userId as string;
-  const bodyPool = req.body?.pool || {};
+  const userId = (req as any).userId as string;
+  const input = req.body?.pool ?? {};
 
-  const title = (bodyPool.title ?? '').trim();
-  const city = (bodyPool.city ?? '').trim();
-  const capacity = Number(bodyPool.capacity);
-  const images: string[] = Array.isArray(bodyPool.images) ? bodyPool.images : [];
-  const pricePerDay = bodyPool.pricePerDay === undefined ? undefined : Number(bodyPool.pricePerDay);
-  const description =
-    typeof bodyPool.description === 'string' ? bodyPool.description.trim() : undefined;
+  const title = String(input.title ?? '').trim();
+  const city = String(input.city ?? '').trim();
+  const capacity = Number(input.capacity);
+  const images: string[] = Array.isArray(input.images) ? input.images : [];
+  const pricePerDay = input.pricePerDay === undefined ? undefined : Number(input.pricePerDay);
+  const description = typeof input.description === 'string' ? input.description.trim() : undefined;
   const filters =
-    bodyPool.filters && typeof bodyPool.filters === 'object'
-      ? { heated: !!bodyPool.filters.heated, petsAllowed: !!bodyPool.filters.petsAllowed }
+    input && typeof input.filters === 'object'
+      ? { heated: !!input.filters.heated, petsAllowed: !!input.filters.petsAllowed }
       : undefined;
-  const busyDays: string[] | undefined = Array.isArray(bodyPool.busyDays)
-    ? bodyPool.busyDays
-    : undefined;
+  const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
 
-  const titleOk = title.length >= 3 && title.length <= 40;
-  const cityOk = !!city;
-  const capOk = inRange(capacity, 1, 100);
-  const imagesOk = inRange(images.length, 1, 7);
-  const priceOk = pricePerDay === undefined || inRange(pricePerDay, 1, 10000);
-  const descOk = description === undefined || inRange(description.length, 1, 300);
+  const isValid =
+    title.length >= 3 &&
+    title.length <= 40 &&
+    !!city &&
+    inRange(capacity, 1, 100) &&
+    inRange(images.length, 1, 7) &&
+    (pricePerDay === undefined || inRange(pricePerDay, 1, 10000)) &&
+    (description === undefined || inRange(description.length, 1, 300));
 
-  if (!titleOk || !cityOk || !capOk || !imagesOk || !priceOk || !descOk) {
-    return res.status(400).json({ message: 'Invalid pool data' });
-  }
+  if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
   const updated = await Pool.findOneAndUpdate(
-    { _id: new Types.ObjectId(id), userId: new Types.ObjectId(authUserId) },
-    {
-      $set: {
-        title,
-        city,
-        capacity,
-        images,
-        pricePerDay,
-        description,
-        filters,
-        busyDays
-      }
-    },
+    { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
+    { $set: { title, city, capacity, images, pricePerDay, description, filters, busyDays } },
     { new: true }
   );
 
