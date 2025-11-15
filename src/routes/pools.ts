@@ -464,9 +464,18 @@ router.put('/pools/:id', authRequired, async (req, res) => {
 
   if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
+  const $set: any = { title, city, capacity, images, pricePerDay, description, filters };
+  const update: any = { $set };
+
+  if (Array.isArray(busyDays)) {
+    $set.busyDays = busyDays; 
+  } else {
+    update.$unset = { busyDays: '' };
+  }
+
   const updated = await Pool.findOneAndUpdate(
     { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
-    { $set: { title, city, capacity, images, pricePerDay, description, filters, busyDays } },
+    update,
     { new: true }
   );
 
