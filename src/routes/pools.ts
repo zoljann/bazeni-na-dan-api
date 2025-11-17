@@ -464,13 +464,30 @@ router.put('/pools/:id', authRequired, async (req, res) => {
 
   if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
-  const $set: any = { title, city, capacity, images, pricePerDay, description, filters };
-  const update: any = { $set };
+  const $set: any = { title, city, capacity, images, filters };
+  const $unset: any = {};
+
+  if (pricePerDay !== undefined) {
+    $set.pricePerDay = pricePerDay;
+  } else {
+    $unset.pricePerDay = '';
+  }
+
+  if (description !== undefined) {
+    $set.description = description;
+  } else {
+    $unset.description = '';
+  }
 
   if (Array.isArray(busyDays)) {
-    $set.busyDays = busyDays; 
+    $set.busyDays = busyDays;
   } else {
-    update.$unset = { busyDays: '' };
+    $unset.busyDays = '';
+  }
+
+  const update: any = { $set };
+  if (Object.keys($unset).length > 0) {
+    update.$unset = $unset;
   }
 
   const updated = await Pool.findOneAndUpdate(
