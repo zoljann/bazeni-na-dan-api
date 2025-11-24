@@ -147,8 +147,7 @@ router.get('/pools', async (req, res) => {
   return res.json({
     pools: pools.map((p) => {
       const owner = ownersById.get(String(p.userId));
-      const name =
-        [owner?.firstName?.trim(), owner?.lastName?.trim()].filter(Boolean).join(' ') || 'Domaćin';
+      const name = [owner?.firstName?.trim(), owner?.lastName?.trim()].filter(Boolean).join(' ');
       const avatarUrl = owner?.avatarUrl || undefined;
       const mobileNumber = owner?.mobileNumber || undefined;
 
@@ -216,7 +215,7 @@ router.get('/pool', async (req, res) => {
     .select('firstName lastName avatarUrl mobileNumber')
     .lean();
 
-  const name = [u?.firstName?.trim(), u?.lastName?.trim()].filter(Boolean).join(' ') || 'Domaćin';
+  const name = [u?.firstName?.trim(), u?.lastName?.trim()].filter(Boolean).join(' ');
 
   return res.json({
     pool: {
@@ -498,6 +497,42 @@ router.put('/pools/:id', authRequired, async (req, res) => {
 
   if (!updated) return res.status(404).json({ message: 'Pool not found' });
   return res.json({ pool: updated.toObject() });
+});
+
+/**
+ * @openapi
+ * /admin/pools:
+ *   get:
+ *     tags: [Pools]
+ *     summary: List all pools (admin)
+ *     description: |
+ *       Returns **all** pools from the database, regardless of visibility or expiration date.
+ *       For access you will need `x-admin-secret` in header.
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: List of pools (raw from database)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 pools:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Pool'
+ *       401:
+ *         description: Admin secret missing or invalid
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.get('/admin/pools', adminSecretRequired, async (_req, res) => {
+  const pools = await Pool.find({}).sort({ createdAt: -1 });
+
+  return res.json({
+    pools: pools.map((p) => p.toObject())
+  });
 });
 
 export default router;

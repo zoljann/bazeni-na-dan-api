@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { User } from '../models/user';
 import { hashPassword, verifyPassword, signAccess } from '../config/auth';
-import { authRequired } from '../helpers/authRequired';
+import { adminSecretRequired, authRequired } from '../helpers/authRequired';
 
 const router = Router();
 
@@ -131,7 +131,7 @@ router.post('/auth/register', async (req, res) => {
 
   try {
     const created = await User.create({ firstName, lastName, email, mobileNumber, passwordHash });
-    const accessToken = signAccess(created.id); 
+    const accessToken = signAccess(created.id);
     return res.status(201).json({
       user: created.toObject(),
       accessToken
@@ -284,6 +284,42 @@ router.put('/user', authRequired, async (req, res) => {
     if (e?.code === 11000) return res.status(409).json({ message: 'Email already used' });
     throw e;
   }
+});
+
+/**
+ * @openapi
+ * /admin/users:
+ *   get:
+ *     tags: [Auth]
+ *     summary: List all users (admin)
+ *     description: |
+ *       Returns **all** users from database, without filters.
+ *       For access you will need `x-admin-secret` in header.
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: List of users
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 users:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Admin secret missing or invalid
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.get('/admin/users', adminSecretRequired, async (_req, res) => {
+  const users = await User.find({}).sort({ createdAt: -1 });
+
+  return res.json({
+    users: users.map((u) => u.toObject())
+  });
 });
 
 export default router;
