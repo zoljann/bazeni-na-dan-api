@@ -273,7 +273,13 @@ router.post('/pools', authRequired, async (req, res) => {
   const pricePerDay = input.pricePerDay === undefined ? undefined : Number(input.pricePerDay);
   const description = typeof input.description === 'string' ? input.description.trim() : undefined;
   const filters = input?.filters
-    ? { heated: !!input.filters.heated, petsAllowed: !!input.filters.petsAllowed }
+    ? {
+        heated: !!input.filters.heated,
+        petsAllowed: !!input.filters.petsAllowed,
+        partyAllowed: !!input.filters.partyAllowed,
+        wiFi: !!input.filters.wiFi,
+        bbq: !!input.filters.bbq
+      }
     : undefined;
   const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
 
@@ -448,7 +454,13 @@ router.put('/pools/:id', authRequired, async (req, res) => {
   const description = typeof input.description === 'string' ? input.description.trim() : undefined;
   const filters =
     input && typeof input.filters === 'object'
-      ? { heated: !!input.filters.heated, petsAllowed: !!input.filters.petsAllowed }
+      ? {
+          heated: !!input.filters.heated,
+          petsAllowed: !!input.filters.petsAllowed,
+          partyAllowed: !!input.filters.partyAllowed,
+          wiFi: !!input.filters.wiFi,
+          bbq: !!input.filters.bbq
+        }
       : undefined;
   const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
 

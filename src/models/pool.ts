@@ -3,7 +3,10 @@ import { Schema, model } from 'mongoose';
 const filtersSchema = new Schema(
   {
     heated: { type: Boolean, default: false },
-    petsAllowed: { type: Boolean, default: false }
+    petsAllowed: { type: Boolean, default: false },
+    partyAllowed: { type: Boolean, default: false },
+    wiFi: { type: Boolean, default: false },
+    bbq: { type: Boolean, default: false }
   },
   { _id: false }
 );
