@@ -239,7 +239,12 @@ router.put('/user', authRequired, async (req, res) => {
     .trim()
     .toLowerCase();
   const mobileNumber = String(req.body?.mobileNumber ?? '').trim();
-  const avatarUrl = typeof req.body?.avatarUrl === 'string' ? req.body.avatarUrl.trim() : undefined;
+  const avatarUrl =
+    typeof req.body?.avatarUrl === 'string'
+      ? req.body?.avatarUrl.trim()
+      : req.body?.avatarUrl === null
+        ? null
+        : undefined;
   const passwordChange = req.body?.passwordChange as
     | { currentPassword?: string; newPassword?: string }
     | undefined;
@@ -275,7 +280,9 @@ router.put('/user', authRequired, async (req, res) => {
   user.lastName = lastName;
   user.email = email;
   user.mobileNumber = mobileNumber;
-  if (avatarUrl) user.avatarUrl = avatarUrl;
+  if (avatarUrl !== undefined) {
+    user.avatarUrl = avatarUrl || undefined;
+  }
 
   try {
     await user.save();
