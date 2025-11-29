@@ -471,7 +471,7 @@ router.put('/pools/:id', authRequired, async (req, res) => {
     inRange(capacity, 1, 100) &&
     inRange(images.length, 1, 7) &&
     (pricePerDay === undefined || inRange(pricePerDay, 1, 10000)) &&
-    (description === undefined || inRange(description.length, 1, 300));
+    (description === undefined || inRange(description.length, 1, 650));
 
   if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
