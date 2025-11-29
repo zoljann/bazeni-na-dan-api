@@ -272,6 +272,12 @@ router.post('/pools', authRequired, async (req, res) => {
 
   const pricePerDay = input.pricePerDay === undefined ? undefined : Number(input.pricePerDay);
   const description = typeof input.description === 'string' ? input.description.trim() : undefined;
+  const rulesDescription =
+    typeof input.rulesDescription === 'string' ? input.rulesDescription.trim() : undefined;
+  const checkIn =
+    input.checkIn === undefined || input.checkIn === null ? undefined : Number(input.checkIn);
+  const checkOut =
+    input.checkOut === undefined || input.checkOut === null ? undefined : Number(input.checkOut);
   const filters = input?.filters
     ? {
         heated: !!input.filters.heated,
@@ -291,7 +297,13 @@ router.post('/pools', authRequired, async (req, res) => {
     capacity >= 1 &&
     capacity <= 100 &&
     images.length >= 1 &&
-    images.length <= 7;
+    images.length <= 7 &&
+    (pricePerDay === undefined || inRange(pricePerDay, 1, 10000)) &&
+    !!description &&
+    inRange(description.length, 1, 800) &&
+    (rulesDescription === undefined || inRange(rulesDescription.length, 1, 650)) &&
+    (checkIn === undefined || inRange(checkIn, 1, 24)) &&
+    (checkOut === undefined || inRange(checkOut, 1, 24));
 
   if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
@@ -303,6 +315,9 @@ router.post('/pools', authRequired, async (req, res) => {
     images,
     pricePerDay,
     description,
+    rulesDescription,
+    checkIn,
+    checkOut,
     filters,
     busyDays
   });
@@ -452,6 +467,12 @@ router.put('/pools/:id', authRequired, async (req, res) => {
   const images: string[] = Array.isArray(input.images) ? input.images : [];
   const pricePerDay = input.pricePerDay === undefined ? undefined : Number(input.pricePerDay);
   const description = typeof input.description === 'string' ? input.description.trim() : undefined;
+  const rulesDescription =
+    typeof input.rulesDescription === 'string' ? input.rulesDescription.trim() : undefined;
+  const checkIn =
+    input.checkIn === undefined || input.checkIn === null ? undefined : Number(input.checkIn);
+  const checkOut =
+    input.checkOut === undefined || input.checkOut === null ? undefined : Number(input.checkOut);
   const filters =
     input && typeof input.filters === 'object'
       ? {
@@ -471,7 +492,10 @@ router.put('/pools/:id', authRequired, async (req, res) => {
     inRange(capacity, 1, 100) &&
     inRange(images.length, 1, 7) &&
     (pricePerDay === undefined || inRange(pricePerDay, 1, 10000)) &&
-    (description === undefined || inRange(description.length, 1, 650));
+    (description === undefined || inRange(description.length, 1, 800)) &&
+    (rulesDescription === undefined || inRange(rulesDescription.length, 1, 650)) &&
+    (checkIn === undefined || inRange(checkIn, 1, 24)) &&
+    (checkOut === undefined || inRange(checkOut, 1, 24));
 
   if (!isValid) return res.status(400).json({ message: 'Invalid pool data' });
 
@@ -488,6 +512,24 @@ router.put('/pools/:id', authRequired, async (req, res) => {
     $set.description = description;
   } else {
     $unset.description = '';
+  }
+
+  if (rulesDescription !== undefined) {
+    $set.rulesDescription = rulesDescription;
+  } else {
+    $unset.rulesDescription = '';
+  }
+
+  if (checkIn !== undefined) {
+    $set.checkIn = checkIn;
+  } else {
+    $unset.checkIn = '';
+  }
+
+  if (checkOut !== undefined) {
+    $set.checkOut = checkOut;
+  } else {
+    $unset.checkOut = '';
   }
 
   if (Array.isArray(busyDays)) {
