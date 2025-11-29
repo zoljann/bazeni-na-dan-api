@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { User } from '../models/user';
 import { hashPassword, verifyPassword, signAccess } from '../config/auth';
 import { adminSecretRequired, authRequired } from '../helpers/authRequired';
+import { Pool } from '../models/pool';
 
 const router = Router();
 
@@ -132,8 +133,13 @@ router.post('/auth/register', async (req, res) => {
   try {
     const created = await User.create({ firstName, lastName, email, mobileNumber, passwordHash });
     const accessToken = signAccess(created.id);
+
+    const userObj = created.toObject();
+    const publishedPoolsCount = await Pool.countDocuments({ userId: created._id });
+    (userObj as any).publishedPoolsCount = publishedPoolsCount;
+
     return res.status(201).json({
-      user: created.toObject(),
+      user: userObj,
       accessToken
     });
   } catch (e: any) {
@@ -184,7 +190,12 @@ router.post('/auth/login', async (req, res) => {
   if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
   const accessToken = signAccess(user.id);
-  return res.json({ user: user.toObject(), accessToken });
+
+  const userObj = user.toObject();
+  const publishedPoolsCount = await Pool.countDocuments({ userId: user._id });
+  (userObj as any).publishedPoolsCount = publishedPoolsCount;
+
+  return res.json({ user: userObj, accessToken });
 });
 
 /**
