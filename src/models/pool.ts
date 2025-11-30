@@ -29,7 +29,8 @@ const poolSchema = new Schema(
     filters: { type: filtersSchema, default: undefined },
     busyDays: { type: [String], default: undefined },
     isVisible: { type: Boolean, default: false, index: true },
-    visibleUntil: { type: Date, default: null, index: true }
+    visibleUntil: { type: Date, default: null, index: true },
+    views: { type: Number, default: 0 }
   },
   { timestamps: true }
 );

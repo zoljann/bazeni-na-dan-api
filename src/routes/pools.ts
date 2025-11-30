@@ -194,7 +194,7 @@ router.get('/pool', async (req, res) => {
   const id = typeof req.query.id === 'string' ? req.query.id.trim() : '';
   if (!isObjectId(id)) return res.status(400).json({ message: 'Invalid id' });
 
-  const pool = await Pool.findById(id);
+  let pool = await Pool.findById(id);
   if (!pool) return res.status(404).json({ message: 'Pool not found' });
 
   let isOwner = false;
@@ -209,6 +209,11 @@ router.get('/pool', async (req, res) => {
     const isPublic =
       pool.isVisible === true && (!pool.visibleUntil || pool.visibleUntil >= new Date());
     if (!isPublic) return res.status(404).json({ message: 'Pool not found' });
+  }
+
+  const updated = await Pool.findByIdAndUpdate(id, { $inc: { views: 1 } }, { new: true });
+  if (updated) {
+    pool = updated;
   }
 
   const u = await User.findById(pool.userId)
