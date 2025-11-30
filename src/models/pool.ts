@@ -6,7 +6,9 @@ const filtersSchema = new Schema(
     petsAllowed: { type: Boolean, default: false },
     partyAllowed: { type: Boolean, default: false },
     wiFi: { type: Boolean, default: false },
-    bbq: { type: Boolean, default: false }
+    bbq: { type: Boolean, default: false },
+    parking: { type: Boolean, default: false },
+    summerKitchen: { type: Boolean, default: false }
   },
   { _id: false }
 );

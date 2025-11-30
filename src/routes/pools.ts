@@ -289,7 +289,9 @@ router.post('/pools', authRequired, async (req, res) => {
         petsAllowed: !!input.filters.petsAllowed,
         partyAllowed: !!input.filters.partyAllowed,
         wiFi: !!input.filters.wiFi,
-        bbq: !!input.filters.bbq
+        bbq: !!input.filters.bbq,
+        parking: !!input.filters.parking,
+        summerKitchen: !!input.filters.summerKitchen
       }
     : undefined;
   const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
@@ -485,7 +487,9 @@ router.put('/pools/:id', authRequired, async (req, res) => {
           petsAllowed: !!input.filters.petsAllowed,
           partyAllowed: !!input.filters.partyAllowed,
           wiFi: !!input.filters.wiFi,
-          bbq: !!input.filters.bbq
+          bbq: !!input.filters.bbq,
+          parking: !!input.filters.parking,
+          summerKitchen: !!input.filters.summerKitchen
         }
       : undefined;
   const busyDays: string[] | undefined = Array.isArray(input.busyDays) ? input.busyDays : undefined;
