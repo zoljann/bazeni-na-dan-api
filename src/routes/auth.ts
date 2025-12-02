@@ -125,7 +125,7 @@ router.post('/auth/register', async (req, res) => {
   }
 
   if (await User.findOne({ email })) {
-    return res.status(409).json({ message: 'Email already used' });
+    return res.status(409).json({ message: 'Email' });
   }
 
   const passwordHash = await hashPassword(password);
@@ -269,7 +269,7 @@ router.put('/user', authRequired, async (req, res) => {
 
   if (email !== user.email) {
     const exists = await User.findOne({ email });
-    if (exists) return res.status(409).json({ message: 'Email already used' });
+    if (exists) return res.status(409).json({ message: 'Email' });
   }
 
   if (passwordChange) {
@@ -299,7 +299,7 @@ router.put('/user', authRequired, async (req, res) => {
     await user.save();
     return res.json({ user: user.toObject() });
   } catch (e: any) {
-    if (e?.code === 11000) return res.status(409).json({ message: 'Email already used' });
+    if (e?.code === 11000) return res.status(409).json({ message: 'Email' });
     throw e;
   }
 });
