@@ -7,7 +7,9 @@ const userSchema = new Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     mobileNumber: { type: String, required: true },
     passwordHash: { type: String, required: true },
-    avatarUrl: { type: String }
+    avatarUrl: { type: String },
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date }
   },
   { timestamps: true }
 );
@@ -18,6 +20,8 @@ userSchema.set('toObject', {
     ret.id = String(ret._id);
     delete ret._id;
     delete ret.passwordHash;
+    delete ret.resetPasswordToken;
+    delete ret.resetPasswordExpires;
     return ret;
   }
 });
@@ -28,6 +32,8 @@ userSchema.set('toJSON', {
     ret.id = String(ret._id);
     delete ret._id;
     delete ret.passwordHash;
+    delete ret.resetPasswordToken;
+    delete ret.resetPasswordExpires;
     return ret;
   }
 });

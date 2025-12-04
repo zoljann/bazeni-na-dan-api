@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import { randomBytes } from 'crypto';
 import { User } from '../models/user';
 import { hashPassword, verifyPassword, signAccess } from '../config/auth';
 import { adminSecretRequired, authRequired } from '../helpers/authRequired';
 import { Pool } from '../models/pool';
+import { sendPasswordResetEmail } from '../config/email';
 
 const router = Router();
 
@@ -30,6 +32,10 @@ const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
  *         email: { type: string, format: email, example: "nedim@example.com" }
  *         mobileNumber: { type: string, example: "061234567" }
  *         avatarUrl: { type: string, nullable: true, example: "https://example.com/a.jpg" }
+ *         publishedPoolsCount:
+ *           type: integer
+ *           description: "Broj objavljenih bazena za korisnika"
+ *           example: 3
  *         createdAt: { type: string, format: date-time }
  *         updatedAt: { type: string, format: date-time }
  *     RegisterRequest:
@@ -47,6 +53,17 @@ const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
  *       properties:
  *         email: { type: string, format: email }
  *         password: { type: string, minLength: 6, maxLength: 25 }
+ *     ForgotPasswordRequest:
+ *       type: object
+ *       required: [email]
+ *       properties:
+ *         email: { type: string, format: email }
+ *     ResetPasswordRequest:
+ *       type: object
+ *       required: [token, newPassword]
+ *       properties:
+ *         token: { type: string, description: "Reset token poslan mailom" }
+ *         newPassword: { type: string, minLength: 6, maxLength: 25 }
  *     PasswordChange:
  *       type: object
  *       required: [currentPassword, newPassword]
@@ -87,7 +104,8 @@ const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
  *       required: true
  *       content:
  *         application/json:
- *           schema: { $ref: '#/components/schemas/RegisterRequest' }
+ *           schema:
+ *             $ref: '#/components/schemas/RegisterRequest'
  *     responses:
  *       201:
  *         description: Created
@@ -95,10 +113,6 @@ const isDigits = (v: string): boolean => /^\d{9,15}$/.test(v);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/AuthSuccess'
- *               type: object
- *               properties:
- *                 user:
- *                   $ref: '#/components/schemas/User'
  *       400:
  *         description: Invalid data
  *         content:
@@ -196,6 +210,116 @@ router.post('/auth/login', async (req, res) => {
   (userObj as any).publishedPoolsCount = publishedPoolsCount;
 
   return res.json({ user: userObj, accessToken });
+});
+
+/**
+ * @openapi
+ * /auth/forgot-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Request password reset link
+ *     description: |
+ *       Ako nalog postoji za dati email, generiše se token za reset lozinke i šalje se email.
+ *       Odgovor je uvijek 200 za validan email format (bez otkrivanja da li nalog postoji).
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/ForgotPasswordRequest' }
+ *     responses:
+ *       200:
+ *         description: Reset request accepted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string, example: "OK" }
+ *       400:
+ *         description: Invalid email format
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.post('/auth/forgot-password', async (req, res) => {
+  const email = String(req.body?.email ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (!isEmail(email)) {
+    return res.status(400).json({ message: 'Invalid email' });
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.json({ message: 'OK' });
+  }
+
+  const token = randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 1000 * 60 * 60 * 2);
+
+  (user as any).resetPasswordToken = token;
+  (user as any).resetPasswordExpires = expires;
+  await user.save();
+
+  res.json({ message: 'OK' });
+
+  void sendPasswordResetEmail(user.email, token).catch((e) => {
+    console.error('Failed to send reset password email', e);
+  });
+});
+
+/**
+ * @openapi
+ * /auth/reset-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Reset password using token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+ *     responses:
+ *       200:
+ *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string, example: "Password updated" }
+ *       400:
+ *         description: Invalid data or invalid/expired token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.post('/auth/reset-password', async (req, res) => {
+  const token = String(req.body?.token ?? '').trim();
+  const newPassword = String(req.body?.password ?? '');
+
+  const newLenOk = newPassword.length >= PASSWORD_MIN && newPassword.length <= PASSWORD_MAX;
+  if (!token || !newLenOk) {
+    return res.status(400).json({ message: 'Invalid data' });
+  }
+
+  const now = new Date();
+  const user = await User.findOne({
+    resetPasswordToken: token,
+    resetPasswordExpires: { $gt: now }
+  } as any);
+
+  if (!user) {
+    return res.status(400).json({ message: 'Invalid or expired token' });
+  }
+
+  user.passwordHash = await hashPassword(newPassword);
+  (user as any).resetPasswordToken = undefined;
+  (user as any).resetPasswordExpires = undefined;
+  await user.save();
+
+  return res.json({ message: 'Password updated' });
 });
 
 /**
@@ -311,8 +435,8 @@ router.put('/user', authRequired, async (req, res) => {
  *     tags: [Auth]
  *     summary: List all users (admin)
  *     description: |
- *       Returns **all** users from database, without filters.
- *       For access you will need `x-admin-secret` in header.
+ *       Returns **all** users from database, bez filtera.
+ *       Za pristup je potreban `x-admin-secret` header.
  *     security: []
  *     responses:
  *       200:
