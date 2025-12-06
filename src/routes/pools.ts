@@ -326,7 +326,9 @@ router.post('/pools', authRequired, async (req, res) => {
     checkIn,
     checkOut,
     filters,
-    busyDays
+    busyDays,
+    isVisible: true,
+    visibleUntil: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
   });
 
   return res.status(201).json({ pool: created.toObject() });
